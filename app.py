@@ -1,22 +1,21 @@
 import streamlit as st
-import mysql.connector
+
 import pandas as pd
 
 st.set_page_config(page_title="Wrapsense Dashboard", layout="wide")
 
 st.title("Wrapsense Operations Dashboard")
 
-conn = mysql.connector.connect(
-    host="localhost",
-    user="root",
-    password="Phish92?",
-    database="client_dashboard"
-)
 
 def load_data(query):
-    df = pd.read_sql(query, conn)
-    df.columns = [col.replace("_", " ").title() for col in df.columns]
-    return df
+    return pd.DataFrame({
+        "Project": ["FJ Pouch Line Project"],
+        "Client": ["ForJars Canning Supply Inc."],
+        "Status": ["Active"],
+        "Tasks": [1],
+        "Purchase Orders": [1],
+        "Quotes": [1]
+    })
 
 # Sidebar navigation
 st.sidebar.title("Navigation")
