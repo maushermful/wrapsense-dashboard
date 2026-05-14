@@ -1,11 +1,12 @@
 import streamlit as st
 import pandas as pd
 import os
+import re
 from datetime import date
 from io import BytesIO
+from pypdf import PdfReader
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
-
 
 st.set_page_config(page_title="Wrapsense Dashboard", layout="wide")
 
@@ -13,6 +14,7 @@ st.set_page_config(page_title="Wrapsense Dashboard", layout="wide")
 # File Storage
 # -----------------------------
 PO_FILE = "purchase_orders.csv"
+SUPPLIER_FILE = "suppliers.csv"
 
 # -----------------------------
 # Session State
@@ -21,13 +23,16 @@ if "clients_data" not in st.session_state:
     st.session_state.clients_data = []
 
 if "suppliers_data" not in st.session_state:
-    st.session_state.suppliers_data = []
+    if os.path.exists(SUPPLIER_FILE) and os.path.getsize(SUPPLIER_FILE) > 0:
+        st.session_state.suppliers_data = pd.read_csv(SUPPLIER_FILE).to_dict("records")
+    else:
+        st.session_state.suppliers_data = []
 
 if "starter_tasks" not in st.session_state:
     st.session_state.starter_tasks = []
 
 if "purchase_orders_data" not in st.session_state:
-    if os.path.exists(PO_FILE):
+    if os.path.exists(PO_FILE) and os.path.getsize(PO_FILE) > 0:
         st.session_state.purchase_orders_data = pd.read_csv(PO_FILE).to_dict("records")
     else:
         st.session_state.purchase_orders_data = []
@@ -39,14 +44,16 @@ if "current_customer" not in st.session_state:
 # Demo Data
 # -----------------------------
 def load_data(query):
-    return pd.DataFrame({
-        "Project": ["FJ Pouch Line Project"],
-        "Client": ["ForJars Canning Supply Inc."],
-        "Status": ["Active"],
-        "Tasks": [1],
-        "Purchase Orders": [len(st.session_state.purchase_orders_data)],
-        "Quotes": [1]
-    })
+    return pd.DataFrame(
+        {
+            "Project": ["FJ Pouch Line Project"],
+            "Client": ["ForJars Canning Supply Inc."],
+            "Status": ["Active"],
+            "Tasks": [1],
+            "Purchase Orders": [len(st.session_state.purchase_orders_data)],
+            "Quotes": [1],
+        }
+    )
 
 # -----------------------------
 # Save Functions
@@ -55,14 +62,48 @@ def save_purchase_orders():
     df = pd.DataFrame(st.session_state.purchase_orders_data)
     df.to_csv(PO_FILE, index=False)
 
+def save_suppliers():
+    df = pd.DataFrame(st.session_state.suppliers_data)
+    df.to_csv(SUPPLIER_FILE, index=False)
+
+# -----------------------------
+# PDF Upload + Extraction
+# -----------------------------
+def extract_text_from_pdf(uploaded_file):
+    reader = PdfReader(uploaded_file)
+    text = ""
+
+    for page in reader.pages:
+        page_text = page.extract_text()
+        if page_text:
+            text += page_text + "\n"
+
+    return text
+
+def extract_po_fields(text):
+    po_number = re.search(r"(PO\s*(Number|#)?[:\s]+)([A-Z0-9\-]+)", text, re.I)
+    supplier = re.search(r"(Supplier|Vendor)[:\s]+(.+)", text, re.I)
+    incoterm = re.search(r"\b(FOB|EXW|CIF|DDP)\b", text, re.I)
+    lead_time = re.search(r"(Lead\s*Time)[:\s]+(.+)", text, re.I)
+    payment_terms = re.search(r"(Payment\s*Terms)[:\s]+(.+)", text, re.I)
+
+    return {
+        "po_number": po_number.group(3).strip() if po_number else "",
+        "supplier": supplier.group(2).strip() if supplier else "",
+        "incoterm": incoterm.group(1).upper() if incoterm else "FOB",
+        "lead_time": lead_time.group(2).strip() if lead_time else "",
+        "payment_terms": payment_terms.group(2).strip() if payment_terms else "",
+        "raw_text": text,
+    }
+
 # -----------------------------
 # PDF Generator
 # -----------------------------
 def generate_po_pdf(po):
     buffer = BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
-    width, height = letter
 
+    width, height = letter
     y = height - 50
 
     pdf.setFont("Helvetica-Bold", 16)
@@ -119,7 +160,7 @@ def generate_po_pdf(po):
     pdf.drawString(
         50,
         y,
-        "Customer/client names are intentionally omitted from supplier-facing PO documents."
+        "Customer/client names are intentionally omitted from supplier-facing PO documents.",
     )
 
     pdf.save()
@@ -146,8 +187,8 @@ page = st.sidebar.radio(
         "Tasks",
         "Quotes",
         "Purchase Orders",
-        "Suppliers"
-    ]
+        "Suppliers",
+    ],
 )
 
 # -----------------------------
@@ -163,8 +204,8 @@ if page == "Guided Workflow":
             "New Supplier",
             "New Project",
             "New Quote",
-            "New Purchase Order"
-        ]
+            "New Purchase Order",
+        ],
     )
 
     if workflow_type == "New Customer":
@@ -187,7 +228,7 @@ if page == "Guided Workflow":
                     "Contact": contact,
                     "Email": email,
                     "Phone": phone,
-                    "Notes": notes
+                    "Notes": notes,
                 }
 
                 st.session_state.clients_data.append(new_customer)
@@ -199,19 +240,55 @@ if page == "Guided Workflow":
 
         with st.form("new_project_form"):
             project_name = st.text_input("Project Name")
-            internal_ref = st.text_input("Internal Reference", placeholder="Example: CL-FJ4")
-            project_status = st.selectbox("Status", ["active", "planning", "on-hold", "completed"])
+            internal_ref = st.text_input(
+                "Internal Reference", placeholder="Example: CL-FJ4"
+            )
+            project_status = st.selectbox(
+                "Status", ["active", "planning", "on-hold", "completed"]
+            )
             description = st.text_area("Project Description")
 
-            project_submitted = st.form_submit_button("Save Project + Create Starter Tasks")
+            project_submitted = st.form_submit_button(
+                "Save Project + Create Starter Tasks"
+            )
 
             if project_submitted:
                 starter_tasks = [
-                    {"Task": "Create customer quote", "Priority": "High", "Status": "Open", "Customer": st.session_state.current_customer, "Project": project_name},
-                    {"Task": "Begin supplier sourcing", "Priority": "High", "Status": "Open", "Customer": st.session_state.current_customer, "Project": project_name},
-                    {"Task": "Upload supplier PI", "Priority": "Medium", "Status": "Open", "Customer": st.session_state.current_customer, "Project": project_name},
-                    {"Task": "Create engineering checklist", "Priority": "Medium", "Status": "Open", "Customer": st.session_state.current_customer, "Project": project_name},
-                    {"Task": "Follow up with customer", "Priority": "Medium", "Status": "Open", "Customer": st.session_state.current_customer, "Project": project_name}
+                    {
+                        "Task": "Create customer quote",
+                        "Priority": "High",
+                        "Status": "Open",
+                        "Customer": st.session_state.current_customer,
+                        "Project": project_name,
+                    },
+                    {
+                        "Task": "Begin supplier sourcing",
+                        "Priority": "High",
+                        "Status": "Open",
+                        "Customer": st.session_state.current_customer,
+                        "Project": project_name,
+                    },
+                    {
+                        "Task": "Upload supplier PI",
+                        "Priority": "Medium",
+                        "Status": "Open",
+                        "Customer": st.session_state.current_customer,
+                        "Project": project_name,
+                    },
+                    {
+                        "Task": "Create engineering checklist",
+                        "Priority": "Medium",
+                        "Status": "Open",
+                        "Customer": st.session_state.current_customer,
+                        "Project": project_name,
+                    },
+                    {
+                        "Task": "Follow up with customer",
+                        "Priority": "Medium",
+                        "Status": "Open",
+                        "Customer": st.session_state.current_customer,
+                        "Project": project_name,
+                    },
                 ]
 
                 st.session_state.starter_tasks.extend(starter_tasks)
@@ -220,7 +297,10 @@ if page == "Guided Workflow":
         st.markdown("### Step 3: Recommended Next Actions")
 
         if st.session_state.starter_tasks:
-            st.dataframe(pd.DataFrame(st.session_state.starter_tasks), use_container_width=True)
+            st.dataframe(
+                pd.DataFrame(st.session_state.starter_tasks),
+                use_container_width=True,
+            )
         else:
             st.info("Starter tasks will appear here after you save a project.")
 
@@ -246,10 +326,12 @@ if page == "Guided Workflow":
                     "Specialty": specialty,
                     "Contact": contact,
                     "Email": email,
-                    "Notes": notes
+                    "Notes": notes,
                 }
 
                 st.session_state.suppliers_data.append(new_supplier)
+                save_suppliers()
+
                 st.success("Supplier saved! Next step: upload PI or link to project.")
 
         st.markdown("### Step 2: Recommended Next Actions")
@@ -260,8 +342,11 @@ if page == "Guided Workflow":
         st.checkbox("Add sourcing task")
 
         if st.session_state.suppliers_data:
-            st.markdown("### Saved Suppliers This Session")
-            st.dataframe(pd.DataFrame(st.session_state.suppliers_data), use_container_width=True)
+            st.markdown("### Saved Suppliers")
+            st.dataframe(
+                pd.DataFrame(st.session_state.suppliers_data),
+                use_container_width=True,
+            )
 
     elif workflow_type == "New Purchase Order":
         st.subheader("New Purchase Order Wizard")
@@ -270,20 +355,63 @@ if page == "Guided Workflow":
             "Privacy rule: customer/client names should NOT appear on supplier-facing PO documents."
         )
 
+        uploaded_po = st.file_uploader("Upload Purchase Order PDF", type=["pdf"])
+
+        extracted = {
+            "po_number": "",
+            "supplier": "",
+            "incoterm": "FOB",
+            "lead_time": "",
+            "payment_terms": "",
+            "raw_text": "",
+        }
+
+        if uploaded_po is not None:
+            pdf_text = extract_text_from_pdf(uploaded_po)
+            extracted = extract_po_fields(pdf_text)
+
+            st.success("PDF uploaded and text extracted.")
+
+            with st.expander("View extracted text"):
+                st.text_area("Extracted PDF Text", extracted["raw_text"], height=300)
+
         st.markdown("### Step 1: PO Details")
 
         with st.form("new_po_form"):
-            po_number = st.text_input("PO Number", placeholder="Example: WS-PO-2026-001")
+            po_number = st.text_input(
+                "PO Number",
+                value=extracted["po_number"],
+                placeholder="Example: WS-PO-2026-001",
+            )
             po_date = st.date_input("PO Date", value=date.today())
-            supplier = st.text_input("Supplier Name")
-            project = st.text_input("Project / Internal Reference", placeholder="Example: CL-FJ4")
+            supplier = st.text_input("Supplier Name", value=extracted["supplier"])
+            project = st.text_input(
+                "Project / Internal Reference", placeholder="Example: CL-FJ4"
+            )
             po_title = st.text_input("PO Title")
-            incoterm = st.selectbox("Incoterm", ["FOB", "EXW", "CIF", "DDP", "Other"])
-            payment_terms = st.text_area("Payment Terms")
-            lead_time = st.text_input("Lead Time")
+
+            incoterm_options = ["FOB", "EXW", "CIF", "DDP", "Other"]
+            incoterm_index = (
+                incoterm_options.index(extracted["incoterm"])
+                if extracted["incoterm"] in incoterm_options
+                else 0
+            )
+
+            incoterm = st.selectbox(
+                "Incoterm",
+                incoterm_options,
+                index=incoterm_index,
+            )
+
+            payment_terms = st.text_area(
+                "Payment Terms",
+                value=extracted["payment_terms"],
+            )
+            lead_time = st.text_input("Lead Time", value=extracted["lead_time"])
+
             notes = st.text_area(
                 "Supplier-Facing Notes",
-                placeholder="Do NOT include customer/client name here."
+                placeholder="Do NOT include customer/client name here.",
             )
 
             st.markdown("### Step 2: Line Item")
@@ -310,7 +438,7 @@ if page == "Guided Workflow":
                     "Quantity": quantity,
                     "Unit Price": unit_price,
                     "Line Total": line_total,
-                    "Status": "Draft"
+                    "Status": "Draft",
                 }
 
                 st.session_state.purchase_orders_data.append(new_po)
@@ -321,7 +449,10 @@ if page == "Guided Workflow":
         st.markdown("### Saved PO Drafts")
 
         if st.session_state.purchase_orders_data:
-            st.dataframe(pd.DataFrame(st.session_state.purchase_orders_data), use_container_width=True)
+            st.dataframe(
+                pd.DataFrame(st.session_state.purchase_orders_data),
+                use_container_width=True,
+            )
         else:
             st.info("No PO drafts created yet.")
 
@@ -342,7 +473,10 @@ elif page == "Clients":
     st.header("Clients")
 
     if st.session_state.clients_data:
-        st.dataframe(pd.DataFrame(st.session_state.clients_data), use_container_width=True)
+        st.dataframe(
+            pd.DataFrame(st.session_state.clients_data),
+            use_container_width=True,
+        )
     else:
         st.info("No clients added in this session yet.")
 
@@ -355,7 +489,10 @@ elif page == "Tasks":
     st.header("Tasks")
 
     if st.session_state.starter_tasks:
-        st.dataframe(pd.DataFrame(st.session_state.starter_tasks), use_container_width=True)
+        st.dataframe(
+            pd.DataFrame(st.session_state.starter_tasks),
+            use_container_width=True,
+        )
     else:
         st.info("No starter tasks created yet.")
 
@@ -369,27 +506,51 @@ elif page == "Purchase Orders":
 
     if st.session_state.purchase_orders_data:
         df = pd.DataFrame(st.session_state.purchase_orders_data)
-        st.dataframe(df, use_container_width=True)
 
-        csv = df.to_csv(index=False).encode("utf-8")
+        st.markdown("### Edit Purchase Orders")
+
+        edited_df = st.data_editor(
+            df,
+            use_container_width=True,
+            num_rows="dynamic",
+            key="po_editor"
+        )
+
+        if st.button("Save Purchase Order Changes"):
+            st.session_state.purchase_orders_data = edited_df.to_dict("records")
+            save_purchase_orders()
+            st.success("Purchase order changes saved!")
+            st.rerun()
+
+        st.markdown("---")
+
+        # IMPORTANT: use edited_df for CSV/PDF/Delete options
+        current_po_data = edited_df.to_dict("records")
+
+        csv = edited_df.to_csv(index=False).encode("utf-8")
 
         st.download_button(
             label="Download Purchase Orders CSV",
             data=csv,
             file_name="purchase_orders.csv",
-            mime="text/csv"
+            mime="text/csv",
         )
 
         st.markdown("### Generate PO PDF")
 
         po_options = [
             f"{po.get('PO Number', 'No PO Number')} — {po.get('Supplier', 'No Supplier')}"
-            for po in st.session_state.purchase_orders_data
+            for po in current_po_data
         ]
 
-        selected_po_label = st.selectbox("Select PO", po_options)
+        selected_po_label = st.selectbox(
+            "Select PO",
+            po_options,
+            key="pdf_po_select",
+        )
+
         selected_index = po_options.index(selected_po_label)
-        selected_po = st.session_state.purchase_orders_data[selected_index]
+        selected_po = current_po_data[selected_index]
 
         pdf_file = generate_po_pdf(selected_po)
 
@@ -397,16 +558,88 @@ elif page == "Purchase Orders":
             label="Download Selected PO as PDF",
             data=pdf_file,
             file_name=f"{selected_po.get('PO Number', 'purchase_order')}.pdf",
-            mime="application/pdf"
+            mime="application/pdf",
         )
+
+        st.markdown("---")
+        st.markdown("## Delete Purchase Order")
+
+        delete_po_label = st.selectbox(
+            "Select PO to Delete",
+            po_options,
+            key="delete_po_select",
+        )
+
+        delete_index = po_options.index(delete_po_label)
+
+        confirm_delete = st.checkbox("I understand this action cannot be undone.")
+
+        if st.button("Delete Selected Purchase Order"):
+            if confirm_delete:
+                st.session_state.purchase_orders_data = current_po_data
+                deleted_po = st.session_state.purchase_orders_data.pop(delete_index)
+                save_purchase_orders()
+
+                st.success(
+                    f"Purchase Order {deleted_po.get('PO Number')} deleted successfully."
+                )
+
+                st.rerun()
+            else:
+                st.warning("Please confirm deletion before removing the purchase order.")
 
     else:
         st.info("No purchase orders created yet.")
-
 elif page == "Suppliers":
     st.header("Suppliers")
 
     if st.session_state.suppliers_data:
-        st.dataframe(pd.DataFrame(st.session_state.suppliers_data), use_container_width=True)
+        df = pd.DataFrame(st.session_state.suppliers_data)
+        st.dataframe(df, use_container_width=True)
+
+        csv = df.to_csv(index=False).encode("utf-8")
+
+        st.download_button(
+            label="Download Suppliers CSV",
+            data=csv,
+            file_name="suppliers.csv",
+            mime="text/csv",
+        )
+
+        st.markdown("---")
+        st.markdown("## Delete Supplier")
+
+        supplier_options = [
+            f"{supplier.get('Supplier', 'No Supplier')} — {supplier.get('Country', 'No Country')}"
+            for supplier in st.session_state.suppliers_data
+        ]
+
+        selected_supplier_label = st.selectbox(
+            "Select Supplier to Delete",
+            supplier_options,
+            key="delete_supplier_select",
+        )
+
+        selected_supplier_index = supplier_options.index(selected_supplier_label)
+
+        confirm_delete_supplier = st.checkbox(
+            "I understand this supplier will be permanently deleted."
+        )
+
+        if st.button("Delete Selected Supplier"):
+            if confirm_delete_supplier:
+                deleted_supplier = st.session_state.suppliers_data.pop(
+                    selected_supplier_index
+                )
+                save_suppliers()
+
+                st.success(
+                    f"Supplier {deleted_supplier.get('Supplier')} deleted successfully."
+                )
+
+                st.rerun()
+            else:
+                st.warning("Please confirm deletion before removing the supplier.")
+
     else:
-        st.info("No suppliers added in this session yet.")
+        st.info("No suppliers added yet.")
