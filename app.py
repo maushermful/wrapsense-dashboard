@@ -7,14 +7,21 @@ from io import BytesIO
 from pypdf import PdfReader
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
+from supabase import create_client, Client
 
 st.set_page_config(page_title="Wrapsense Dashboard", layout="wide")
+
+# -----------------------------
+# Supabase Connection
+# -----------------------------
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # -----------------------------
 # File Storage
 # -----------------------------
 PO_FILE = "purchase_orders.csv"
-SUPPLIER_FILE = "suppliers.csv"
 
 # -----------------------------
 # Session State
@@ -22,23 +29,23 @@ SUPPLIER_FILE = "suppliers.csv"
 if "clients_data" not in st.session_state:
     st.session_state.clients_data = []
 
-if "suppliers_data" not in st.session_state:
-    if os.path.exists(SUPPLIER_FILE) and os.path.getsize(SUPPLIER_FILE) > 0:
-        st.session_state.suppliers_data = pd.read_csv(SUPPLIER_FILE).to_dict("records")
-    else:
-        st.session_state.suppliers_data = []
-
 if "starter_tasks" not in st.session_state:
     st.session_state.starter_tasks = []
 
-if "purchase_orders_data" not in st.session_state:
-    if os.path.exists(PO_FILE) and os.path.getsize(PO_FILE) > 0:
-        st.session_state.purchase_orders_data = pd.read_csv(PO_FILE).to_dict("records")
-    else:
-        st.session_state.purchase_orders_data = []
-
 if "current_customer" not in st.session_state:
     st.session_state.current_customer = ""
+
+try:
+    if "purchase_orders_data" not in st.session_state:
+        if os.path.exists(PO_FILE) and os.path.getsize(PO_FILE) > 0:
+            st.session_state.purchase_orders_data = pd.read_csv(PO_FILE).to_dict("records")
+        else:
+            st.session_state.purchase_orders_data = []
+except pd.errors.EmptyDataError:
+    st.session_state.purchase_orders_data = []
+
+if "suppliers_data" not in st.session_state:
+    st.session_state.suppliers_data = []
 
 # -----------------------------
 # Demo Data
@@ -49,22 +56,40 @@ def load_data(query):
             "Project": ["FJ Pouch Line Project"],
             "Client": ["ForJars Canning Supply Inc."],
             "Status": ["Active"],
-            "Tasks": [1],
+            "Tasks": [len(st.session_state.starter_tasks)],
             "Purchase Orders": [len(st.session_state.purchase_orders_data)],
             "Quotes": [1],
         }
     )
 
 # -----------------------------
-# Save Functions
+# Save Purchase Orders Locally
 # -----------------------------
 def save_purchase_orders():
     df = pd.DataFrame(st.session_state.purchase_orders_data)
     df.to_csv(PO_FILE, index=False)
 
-def save_suppliers():
-    df = pd.DataFrame(st.session_state.suppliers_data)
-    df.to_csv(SUPPLIER_FILE, index=False)
+# -----------------------------
+# Supabase Supplier Functions
+# -----------------------------
+def load_suppliers_from_supabase():
+    response = supabase.table("suppliers").select("*").execute()
+    return response.data
+
+def add_supplier_to_supabase(supplier):
+    return supabase.table("suppliers").insert(
+        {
+            "supplier": supplier.get("Supplier", ""),
+            "country": supplier.get("Country", ""),
+            "specialty": supplier.get("Specialty", ""),
+            "contact": supplier.get("Contact", ""),
+            "email": supplier.get("Email", ""),
+            "notes": supplier.get("Notes", ""),
+        }
+    ).execute()
+
+def delete_supplier_from_supabase(supplier_id):
+    return supabase.table("suppliers").delete().eq("id", supplier_id).execute()
 
 # -----------------------------
 # PDF Upload + Extraction
@@ -168,15 +193,11 @@ def generate_po_pdf(po):
     return buffer
 
 # -----------------------------
-# Header
+# Header + Sidebar
 # -----------------------------
 st.title("Wrapsense Operations Dashboard")
 
-# -----------------------------
-# Sidebar
-# -----------------------------
 st.sidebar.title("Navigation")
-
 page = st.sidebar.radio(
     "Go to",
     [
@@ -211,8 +232,6 @@ if page == "Guided Workflow":
     if workflow_type == "New Customer":
         st.subheader("New Customer Wizard")
 
-        st.markdown("### Step 1: Add Customer")
-
         with st.form("new_customer_form"):
             customer_name = st.text_input("Customer Name")
             contact = st.text_input("Main Contact")
@@ -233,81 +252,10 @@ if page == "Guided Workflow":
 
                 st.session_state.clients_data.append(new_customer)
                 st.session_state.current_customer = customer_name
-
-                st.success("Customer saved! Next step: create a project.")
-
-        st.markdown("### Step 2: Create First Project")
-
-        with st.form("new_project_form"):
-            project_name = st.text_input("Project Name")
-            internal_ref = st.text_input(
-                "Internal Reference", placeholder="Example: CL-FJ4"
-            )
-            project_status = st.selectbox(
-                "Status", ["active", "planning", "on-hold", "completed"]
-            )
-            description = st.text_area("Project Description")
-
-            project_submitted = st.form_submit_button(
-                "Save Project + Create Starter Tasks"
-            )
-
-            if project_submitted:
-                starter_tasks = [
-                    {
-                        "Task": "Create customer quote",
-                        "Priority": "High",
-                        "Status": "Open",
-                        "Customer": st.session_state.current_customer,
-                        "Project": project_name,
-                    },
-                    {
-                        "Task": "Begin supplier sourcing",
-                        "Priority": "High",
-                        "Status": "Open",
-                        "Customer": st.session_state.current_customer,
-                        "Project": project_name,
-                    },
-                    {
-                        "Task": "Upload supplier PI",
-                        "Priority": "Medium",
-                        "Status": "Open",
-                        "Customer": st.session_state.current_customer,
-                        "Project": project_name,
-                    },
-                    {
-                        "Task": "Create engineering checklist",
-                        "Priority": "Medium",
-                        "Status": "Open",
-                        "Customer": st.session_state.current_customer,
-                        "Project": project_name,
-                    },
-                    {
-                        "Task": "Follow up with customer",
-                        "Priority": "Medium",
-                        "Status": "Open",
-                        "Customer": st.session_state.current_customer,
-                        "Project": project_name,
-                    },
-                ]
-
-                st.session_state.starter_tasks.extend(starter_tasks)
-                st.success("Project saved and starter tasks created!")
-
-        st.markdown("### Step 3: Recommended Next Actions")
-
-        if st.session_state.starter_tasks:
-            st.dataframe(
-                pd.DataFrame(st.session_state.starter_tasks),
-                use_container_width=True,
-            )
-        else:
-            st.info("Starter tasks will appear here after you save a project.")
+                st.success("Customer saved!")
 
     elif workflow_type == "New Supplier":
         st.subheader("New Supplier Wizard")
-
-        st.markdown("### Step 1: Add Supplier")
 
         with st.form("new_supplier_form"):
             supplier_name = st.text_input("Supplier Name")
@@ -329,24 +277,15 @@ if page == "Guided Workflow":
                     "Notes": notes,
                 }
 
-                st.session_state.suppliers_data.append(new_supplier)
-                save_suppliers()
+                add_supplier_to_supabase(new_supplier)
+                st.session_state.suppliers_data = load_suppliers_from_supabase()
+                st.success("Supplier saved to Supabase!")
 
-                st.success("Supplier saved! Next step: upload PI or link to project.")
-
-        st.markdown("### Step 2: Recommended Next Actions")
-
+        st.markdown("### Recommended Next Actions")
         st.checkbox("Upload Supplier PI")
         st.checkbox("Link supplier to project")
         st.checkbox("Create purchase order")
         st.checkbox("Add sourcing task")
-
-        if st.session_state.suppliers_data:
-            st.markdown("### Saved Suppliers")
-            st.dataframe(
-                pd.DataFrame(st.session_state.suppliers_data),
-                use_container_width=True,
-            )
 
     elif workflow_type == "New Purchase Order":
         st.subheader("New Purchase Order Wizard")
@@ -369,13 +308,10 @@ if page == "Guided Workflow":
         if uploaded_po is not None:
             pdf_text = extract_text_from_pdf(uploaded_po)
             extracted = extract_po_fields(pdf_text)
-
             st.success("PDF uploaded and text extracted.")
 
             with st.expander("View extracted text"):
                 st.text_area("Extracted PDF Text", extracted["raw_text"], height=300)
-
-        st.markdown("### Step 1: PO Details")
 
         with st.form("new_po_form"):
             po_number = st.text_input(
@@ -383,11 +319,19 @@ if page == "Guided Workflow":
                 value=extracted["po_number"],
                 placeholder="Example: WS-PO-2026-001",
             )
+
             po_date = st.date_input("PO Date", value=date.today())
-            supplier = st.text_input("Supplier Name", value=extracted["supplier"])
-            project = st.text_input(
-                "Project / Internal Reference", placeholder="Example: CL-FJ4"
+
+            supplier = st.text_input(
+                "Supplier Name",
+                value=extracted["supplier"],
             )
+
+            project = st.text_input(
+                "Project / Internal Reference",
+                placeholder="Example: CL-FJ4",
+            )
+
             po_title = st.text_input("PO Title")
 
             incoterm_options = ["FOB", "EXW", "CIF", "DDP", "Other"]
@@ -407,14 +351,18 @@ if page == "Guided Workflow":
                 "Payment Terms",
                 value=extracted["payment_terms"],
             )
-            lead_time = st.text_input("Lead Time", value=extracted["lead_time"])
+
+            lead_time = st.text_input(
+                "Lead Time",
+                value=extracted["lead_time"],
+            )
 
             notes = st.text_area(
                 "Supplier-Facing Notes",
                 placeholder="Do NOT include customer/client name here.",
             )
 
-            st.markdown("### Step 2: Line Item")
+            st.markdown("### Line Item")
             item_description = st.text_input("Item Description")
             quantity = st.number_input("Quantity", min_value=1, value=1)
             unit_price = st.number_input("Unit Price", min_value=0.0, value=0.0)
@@ -443,18 +391,7 @@ if page == "Guided Workflow":
 
                 st.session_state.purchase_orders_data.append(new_po)
                 save_purchase_orders()
-
-                st.success("PO draft saved and stored!")
-
-        st.markdown("### Saved PO Drafts")
-
-        if st.session_state.purchase_orders_data:
-            st.dataframe(
-                pd.DataFrame(st.session_state.purchase_orders_data),
-                use_container_width=True,
-            )
-        else:
-            st.info("No PO drafts created yet.")
+                st.success("PO draft saved!")
 
     elif workflow_type == "New Project":
         st.subheader("New Project Wizard")
@@ -473,12 +410,9 @@ elif page == "Clients":
     st.header("Clients")
 
     if st.session_state.clients_data:
-        st.dataframe(
-            pd.DataFrame(st.session_state.clients_data),
-            use_container_width=True,
-        )
+        st.dataframe(pd.DataFrame(st.session_state.clients_data), use_container_width=True)
     else:
-        st.info("No clients added in this session yet.")
+        st.info("No clients added yet.")
 
 elif page == "Projects":
     st.header("Projects")
@@ -489,10 +423,7 @@ elif page == "Tasks":
     st.header("Tasks")
 
     if st.session_state.starter_tasks:
-        st.dataframe(
-            pd.DataFrame(st.session_state.starter_tasks),
-            use_container_width=True,
-        )
+        st.dataframe(pd.DataFrame(st.session_state.starter_tasks), use_container_width=True)
     else:
         st.info("No starter tasks created yet.")
 
@@ -513,7 +444,7 @@ elif page == "Purchase Orders":
             df,
             use_container_width=True,
             num_rows="dynamic",
-            key="po_editor"
+            key="po_editor",
         )
 
         if st.button("Save Purchase Order Changes"):
@@ -522,10 +453,9 @@ elif page == "Purchase Orders":
             st.success("Purchase order changes saved!")
             st.rerun()
 
-        st.markdown("---")
-
-        # IMPORTANT: use edited_df for CSV/PDF/Delete options
         current_po_data = edited_df.to_dict("records")
+
+        st.markdown("---")
 
         csv = edited_df.to_csv(index=False).encode("utf-8")
 
@@ -571,7 +501,6 @@ elif page == "Purchase Orders":
         )
 
         delete_index = po_options.index(delete_po_label)
-
         confirm_delete = st.checkbox("I understand this action cannot be undone.")
 
         if st.button("Delete Selected Purchase Order"):
@@ -590,8 +519,11 @@ elif page == "Purchase Orders":
 
     else:
         st.info("No purchase orders created yet.")
+
 elif page == "Suppliers":
     st.header("Suppliers")
+
+    st.session_state.suppliers_data = load_suppliers_from_supabase()
 
     if st.session_state.suppliers_data:
         df = pd.DataFrame(st.session_state.suppliers_data)
@@ -610,7 +542,7 @@ elif page == "Suppliers":
         st.markdown("## Delete Supplier")
 
         supplier_options = [
-            f"{supplier.get('Supplier', 'No Supplier')} — {supplier.get('Country', 'No Country')}"
+            f"{supplier.get('supplier', 'No Supplier')} — {supplier.get('country', 'No Country')}"
             for supplier in st.session_state.suppliers_data
         ]
 
@@ -621,6 +553,7 @@ elif page == "Suppliers":
         )
 
         selected_supplier_index = supplier_options.index(selected_supplier_label)
+        selected_supplier = st.session_state.suppliers_data[selected_supplier_index]
 
         confirm_delete_supplier = st.checkbox(
             "I understand this supplier will be permanently deleted."
@@ -628,13 +561,10 @@ elif page == "Suppliers":
 
         if st.button("Delete Selected Supplier"):
             if confirm_delete_supplier:
-                deleted_supplier = st.session_state.suppliers_data.pop(
-                    selected_supplier_index
-                )
-                save_suppliers()
+                delete_supplier_from_supabase(selected_supplier["id"])
 
                 st.success(
-                    f"Supplier {deleted_supplier.get('Supplier')} deleted successfully."
+                    f"Supplier {selected_supplier.get('supplier')} deleted successfully."
                 )
 
                 st.rerun()
