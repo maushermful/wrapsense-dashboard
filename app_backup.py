@@ -110,6 +110,28 @@ def add_supplier_to_supabase(supplier):
 def delete_supplier_from_supabase(supplier_id):
     return supabase.table("suppliers").delete().eq("id", supplier_id).execute()
 
+# -----------------------------
+# Supabase Client Functions
+# -----------------------------
+def load_clients_from_supabase():
+    response = supabase.table("clients").select("*").execute()
+    return response.data
+
+
+def add_client_to_supabase(client):
+    return supabase.table("clients").insert(
+        {
+            "client_name": client.get("Customer Name", ""),
+            "contact": client.get("Contact", ""),
+            "email": client.get("Email", ""),
+            "phone": client.get("Phone", ""),
+            "notes": client.get("Notes", ""),
+        }
+    ).execute()
+    
+def delete_client_from_supabase(client_id):
+    return supabase.table("clients").delete().eq("id", client_id).execute()
+
 
 # -----------------------------
 # Supabase Purchase Order Functions
@@ -436,10 +458,12 @@ if page == "Guided Workflow":
                     "Notes": notes,
                 }
 
-                st.session_state.clients_data.append(new_customer)
+                add_client_to_supabase(new_customer)
+
+                st.session_state.clients_data = load_clients_from_supabase()
                 st.session_state.current_customer = customer_name
 
-                st.success("Customer saved!")
+                st.success("Customer saved to Supabase!")
 
     elif workflow_type == "New Supplier":
         st.subheader("New Supplier Wizard")
@@ -602,15 +626,93 @@ elif page == "Dashboard":
     df = load_data("SELECT * FROM project_dashboard;")
     st.dataframe(df, use_container_width=True)
 
-
 elif page == "Clients":
     st.header("Clients")
 
+    st.session_state.clients_data = (
+        load_clients_from_supabase()
+    )
+
     if st.session_state.clients_data:
+
+        df = pd.DataFrame(
+            st.session_state.clients_data
+        )
+
         st.dataframe(
-            pd.DataFrame(st.session_state.clients_data),
+            df,
             use_container_width=True,
         )
+
+        csv = df.to_csv(index=False).encode("utf-8")
+
+        st.download_button(
+            label="Download Clients CSV",
+            data=csv,
+            file_name="clients.csv",
+            mime="text/csv",
+        )
+
+        if user_role in ["admin", "manager"]:
+
+            st.markdown("---")
+            st.markdown("## Delete Client")
+
+            client_options = [
+                f"{client.get('client_name', 'No Client')} — "
+                f"{client.get('email', 'No Email')}"
+                for client in st.session_state.clients_data
+            ]
+
+            selected_client_label = st.selectbox(
+                "Select Client to Delete",
+                client_options,
+                key="delete_client_select",
+            )
+
+            selected_client_index = client_options.index(
+                selected_client_label
+            )
+
+            selected_client = (
+                st.session_state.clients_data[
+                    selected_client_index
+                ]
+            )
+
+            confirm_delete_client = st.checkbox(
+                "I understand this client will be permanently deleted."
+            )
+
+            if st.button("Delete Selected Client"):
+
+                if confirm_delete_client:
+
+                    delete_client_from_supabase(
+                        selected_client["id"]
+                    )
+
+                    st.success(
+                        f"Client "
+                        f"{selected_client.get('client_name')} "
+                        f"deleted successfully."
+                    )
+
+                    st.rerun()
+
+                else:
+
+                    st.warning(
+                        "Please confirm deletion before "
+                        "removing the client."
+                    )
+
+        else:
+
+            st.info(
+                "You do not have permission to delete clients."
+            )
+
     else:
         st.info("No clients added yet.")
 
