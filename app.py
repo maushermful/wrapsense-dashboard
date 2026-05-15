@@ -132,6 +132,28 @@ def add_client_to_supabase(client):
 def delete_client_from_supabase(client_id):
     return supabase.table("clients").delete().eq("id", client_id).execute()
 
+# -----------------------------
+# Supabase Projects Functions
+# -----------------------------
+def load_projects_from_supabase():
+    response = supabase.table("projects").select("*").execute()
+    return response.data
+
+
+def add_project_to_supabase(project):
+    return supabase.table("projects").insert(
+        {
+            "project_name": project.get("Project Name", ""),
+            "client_name": project.get("Client Name", ""),
+            "internal_ref": project.get("Internal Reference", ""),
+            "status": project.get("Status", "planning"),
+            "description": project.get("Description", ""),
+        }
+    ).execute()
+
+
+def delete_project_from_supabase(project_id):
+    return supabase.table("projects").delete().eq("id", project_id).execute()
 
 # -----------------------------
 # Supabase Purchase Order Functions
@@ -209,6 +231,29 @@ def update_purchase_order_in_supabase(po):
 
 def delete_purchase_order_from_supabase(po_id):
     return supabase.table("purchase_orders").delete().eq("id", po_id).execute()
+
+# -----------------------------
+# Supabase Tasks Functions
+# -----------------------------
+def load_tasks_from_supabase():
+    response = supabase.table("tasks").select("*").execute()
+    return response.data
+
+
+def add_task_to_supabase(task):
+    return supabase.table("tasks").insert(
+        {
+            "task": task.get("Task", ""),
+            "priority": task.get("Priority", ""),
+            "status": task.get("Status", "Open"),
+            "customer": task.get("Customer", ""),
+            "project": task.get("Project", ""),
+        }
+    ).execute()
+
+
+def delete_task_from_supabase(task_id):
+    return supabase.table("tasks").delete().eq("id", task_id).execute()
 
 
 # -----------------------------
@@ -432,6 +477,7 @@ if page == "Guided Workflow":
             "New Customer",
             "New Supplier",
             "New Project",
+            "New Task",
             "New Quote",
             "New Purchase Order",
         ],
@@ -610,21 +656,80 @@ if page == "Guided Workflow":
                 )
 
                 st.success("PO draft saved to Supabase!")
-
     elif workflow_type == "New Project":
         st.subheader("New Project Wizard")
-        st.info("This workflow is coming next.")
 
-    elif workflow_type == "New Quote":
-        st.subheader("New Quote Wizard")
-        st.info("This workflow is coming next.")
+        with st.form("new_project_form"):
 
+            project_name = st.text_input("Project Name")
 
-elif page == "Dashboard":
-    st.header("Project Dashboard")
+            client_name = st.text_input("Client Name")
 
-    df = load_data("SELECT * FROM project_dashboard;")
-    st.dataframe(df, use_container_width=True)
+            internal_ref = st.text_input(
+                "Internal Reference",
+                placeholder="Example: CL-FJ4",
+            )
+
+            status = st.selectbox(
+                "Status",
+                ["planning", "active", "on-hold", "completed"],
+            )
+
+            description = st.text_area(
+                "Project Description"
+            )
+
+            submitted = st.form_submit_button(
+                "Save Project"
+            )
+
+            if submitted:
+
+                new_project = {
+                    "Project Name": project_name,
+                    "Client Name": client_name,
+                    "Internal Reference": internal_ref,
+                    "Status": status,
+                    "Description": description,
+                }
+
+                add_project_to_supabase(
+                    new_project
+                )
+
+                st.success(
+                    "Project saved to Supabase!"
+                )
+    elif workflow_type == "New Task":
+        st.subheader("New Task Wizard")
+
+        with st.form("new_task_form"):
+            task = st.text_input("Task")
+            priority = st.selectbox(
+                "Priority",
+                ["Low", "Medium", "High"],
+            )
+            status = st.selectbox(
+                "Status",
+                ["Open", "In Progress", "Completed"],
+            )
+            customer = st.text_input("Customer / Client")
+            project = st.text_input("Project")
+
+            submitted = st.form_submit_button("Save Task")
+
+            if submitted:
+                new_task = {
+                    "Task": task,
+                    "Priority": priority,
+                    "Status": status,
+                    "Customer": customer,
+                    "Project": project,
+                }
+
+                add_task_to_supabase(new_task)
+
+                st.success("Task saved to Supabase!")
 
 elif page == "Clients":
     st.header("Clients")
@@ -720,20 +825,125 @@ elif page == "Clients":
 elif page == "Projects":
     st.header("Projects")
 
-    df = load_data("SELECT * FROM projects;")
-    st.dataframe(df, use_container_width=True)
+    projects_data = load_projects_from_supabase()
+
+    if projects_data:
+        df = pd.DataFrame(projects_data)
+        st.dataframe(df, use_container_width=True)
+
+        csv = df.to_csv(index=False).encode("utf-8")
+
+        st.download_button(
+            label="Download Projects CSV",
+            data=csv,
+            file_name="projects.csv",
+            mime="text/csv",
+        )
+
+        if user_role in ["admin", "manager"]:
+            st.markdown("---")
+            st.markdown("## Delete Project")
+
+            project_options = [
+                f"{project.get('project_name', 'No Project')} — "
+                f"{project.get('client_name', 'No Client')}"
+                for project in projects_data
+            ]
+
+            selected_project_label = st.selectbox(
+                "Select Project to Delete",
+                project_options,
+                key="delete_project_select",
+            )
+
+            selected_project_index = project_options.index(selected_project_label)
+            selected_project = projects_data[selected_project_index]
+
+            confirm_delete_project = st.checkbox(
+                "I understand this project will be permanently deleted."
+            )
+
+            if st.button("Delete Selected Project"):
+                if confirm_delete_project:
+                    delete_project_from_supabase(selected_project["id"])
+                    st.success(
+                        f"Project {selected_project.get('project_name')} deleted successfully."
+                    )
+                    st.rerun()
+                else:
+                    st.warning("Please confirm deletion before removing the project.")
+        else:
+            st.info("You do not have permission to delete projects.")
+
+    else:
+        st.info("No projects added yet.")
 
 
 elif page == "Tasks":
     st.header("Tasks")
 
-    if st.session_state.starter_tasks:
+    tasks_data = load_tasks_from_supabase()
+
+    if tasks_data:
+        df = pd.DataFrame(tasks_data)
+
         st.dataframe(
-            pd.DataFrame(st.session_state.starter_tasks),
+            df,
             use_container_width=True,
         )
+
+        csv = df.to_csv(index=False).encode("utf-8")
+
+        st.download_button(
+            label="Download Tasks CSV",
+            data=csv,
+            file_name="tasks.csv",
+            mime="text/csv",
+        )
+
+        if user_role in ["admin", "manager"]:
+
+            st.markdown("---")
+            st.markdown("## Delete Task")
+
+            task_options = [
+                f"{task.get('task', 'No Task')} — "
+                f"{task.get('project', 'No Project')}"
+                for task in tasks_data
+            ]
+
+            selected_task_label = st.selectbox(
+                "Select Task to Delete",
+                task_options,
+                key="delete_task_select",
+            )
+
+            selected_task_index = task_options.index(selected_task_label)
+            selected_task = tasks_data[selected_task_index]
+
+            confirm_delete_task = st.checkbox(
+                "I understand this task will be permanently deleted."
+            )
+
+            if st.button("Delete Selected Task"):
+
+                if confirm_delete_task:
+                    delete_task_from_supabase(selected_task["id"])
+
+                    st.success(
+                        f"Task {selected_task.get('task')} deleted successfully."
+                    )
+
+                    st.rerun()
+
+                else:
+                    st.warning("Please confirm deletion before removing the task.")
+
+        else:
+            st.info("You do not have permission to delete tasks.")
+
     else:
-        st.info("No starter tasks created yet.")
+        st.info("No tasks added yet.")
 
 
 elif page == "Quotes":
