@@ -18,6 +18,32 @@ SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # -----------------------------
+# Login Function
+# -----------------------------
+def login_user(email, password):
+
+    try:
+
+        response = supabase.auth.sign_in_with_password(
+            {
+                "email": email,
+                "password": password,
+            }
+        )
+
+        if response.user:
+
+            st.session_state.authenticated = True
+            st.session_state.user_email = email
+
+            return True
+
+    except Exception as e:
+        st.error(f"Login failed: {e}")
+
+    return False
+
+# -----------------------------
 # Session State
 # -----------------------------
 if "clients_data" not in st.session_state:
@@ -34,6 +60,12 @@ if "suppliers_data" not in st.session_state:
 
 if "purchase_orders_data" not in st.session_state:
     st.session_state.purchase_orders_data = []
+
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if "user_email" not in st.session_state:
+    st.session_state.user_email = ""
 
 
 # -----------------------------
@@ -259,14 +291,59 @@ def generate_po_pdf(po):
     pdf.save()
     buffer.seek(0)
     return buffer
+    
+# -----------------------------
+# Authentication Gate
+# -----------------------------
+if not st.session_state.authenticated:
 
+    st.title("Wrapsense Login")
 
+    with st.form("login_form"):
+
+        login_email = st.text_input("Email")
+
+        login_password = st.text_input(
+            "Password",
+            type="password"
+        )
+
+        login_submitted = st.form_submit_button("Login")
+
+        if login_submitted:
+
+            success = login_user(
+                login_email,
+                login_password
+            )
+
+            if success:
+                st.success("Login successful!")
+                st.rerun()
+
+            else:
+                st.error("Invalid email or password.")
+
+    st.stop()
+    
 # -----------------------------
 # Header + Sidebar
 # -----------------------------
+
 st.title("Wrapsense Operations Dashboard")
 
 st.sidebar.title("Navigation")
+
+st.sidebar.markdown(
+    f"Logged in as: {st.session_state.get('user_email', '')}"
+)
+
+if st.sidebar.button("Logout"):
+
+    st.session_state.authenticated = False
+    st.session_state.user_email = ""
+
+    st.rerun()
 
 page = st.sidebar.radio(
     "Go to",
