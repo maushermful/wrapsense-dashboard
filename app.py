@@ -327,6 +327,40 @@ if not st.session_state.authenticated:
     st.stop()
     
 # -----------------------------
+# User Roles
+# -----------------------------
+ADMIN_EMAILS = [
+    "mausherm@gmail.com",
+]
+
+MANAGER_EMAILS = [
+    "chris@wrapsensepackaging.com",
+]
+
+
+def get_user_role():
+
+    email = st.session_state.get(
+        "user_email",
+        ""
+    ).lower()
+
+    if email in [
+        admin.lower() for admin in ADMIN_EMAILS
+    ]:
+        return "admin"
+
+    if email in [
+        manager.lower() for manager in MANAGER_EMAILS
+    ]:
+        return "manager"
+
+    return "viewer"
+
+
+user_role = get_user_role()
+
+# -----------------------------
 # Header + Sidebar
 # -----------------------------
 
@@ -336,6 +370,10 @@ st.sidebar.title("Navigation")
 
 st.sidebar.markdown(
     f"Logged in as: {st.session_state.get('user_email', '')}"
+)
+
+st.sidebar.markdown(
+    f"Role: {user_role.title()}"
 )
 
 if st.sidebar.button("Logout"):
@@ -624,7 +662,6 @@ elif page == "Purchase Orders":
             key="po_editor",
             disabled=["id", "Line Total"],
         )
-
         if st.button("Save Purchase Order Changes"):
 
             edited_records = edited_df.to_dict("records")
@@ -643,9 +680,7 @@ elif page == "Purchase Orders":
                 load_purchase_orders_from_supabase()
             )
 
-            st.success(
-                f"{updated_count} purchase order(s) saved."
-            )
+            st.success(f"{updated_count} purchase order(s) saved.")
 
             st.rerun()
 
@@ -677,7 +712,6 @@ elif page == "Purchase Orders":
         )
 
         selected_index = po_options.index(selected_po_label)
-
         selected_po = current_po_data[selected_index]
 
         pdf_file = generate_po_pdf(selected_po)
@@ -685,54 +719,58 @@ elif page == "Purchase Orders":
         st.download_button(
             label="Download Selected PO as PDF",
             data=pdf_file,
-            file_name=(
-                f"{selected_po.get('PO Number', 'purchase_order')}.pdf"
-            ),
+            file_name=f"{selected_po.get('PO Number', 'purchase_order')}.pdf",
             mime="application/pdf",
         )
 
-        st.markdown("---")
-        st.markdown("## Delete Purchase Order")
+        if user_role in ["admin", "manager"]:
 
-        delete_po_label = st.selectbox(
-            "Select PO to Delete",
-            po_options,
-            key="delete_po_select",
-        )
+            st.markdown("---")
+            st.markdown("## Delete Purchase Order")
 
-        delete_index = po_options.index(delete_po_label)
+            delete_po_label = st.selectbox(
+                "Select PO to Delete",
+                po_options,
+                key="delete_po_select",
+            )
 
-        selected_delete_po = current_po_data[delete_index]
+            delete_index = po_options.index(delete_po_label)
+            selected_delete_po = current_po_data[delete_index]
 
-        confirm_delete = st.checkbox(
-            "I understand this action cannot be undone."
-        )
+            confirm_delete = st.checkbox(
+                "I understand this action cannot be undone."
+            )
 
-        if st.button("Delete Selected Purchase Order"):
+            if st.button("Delete Selected Purchase Order"):
 
-            if confirm_delete:
+                if confirm_delete:
 
-                delete_purchase_order_from_supabase(
-                    selected_delete_po["id"]
-                )
+                    delete_purchase_order_from_supabase(
+                        selected_delete_po["id"]
+                    )
 
-                st.success(
-                    f"Purchase Order "
-                    f"{selected_delete_po.get('PO Number')} "
-                    f"deleted successfully."
-                )
+                    st.success(
+                        f"Purchase Order "
+                        f"{selected_delete_po.get('PO Number')} "
+                        f"deleted successfully."
+                    )
 
-                st.rerun()
+                    st.rerun()
 
-            else:
-                st.warning(
-                    "Please confirm deletion before removing "
-                    "the purchase order."
-                )
+                else:
+                    st.warning(
+                        "Please confirm deletion before removing "
+                        "the purchase order."
+                    )
 
+        else:
+
+            st.info(
+                "You do not have permission to delete purchase orders."
+            )
+            
     else:
         st.info("No purchase orders created yet.")
-
 
 elif page == "Suppliers":
     st.header("Suppliers")
@@ -752,38 +790,43 @@ elif page == "Suppliers":
             mime="text/csv",
         )
 
-        st.markdown("---")
-        st.markdown("## Delete Supplier")
+        if user_role in ["admin", "manager"]:
+            st.markdown("---")
+            st.markdown("## Delete Supplier")
 
-        supplier_options = [
-            f"{supplier.get('supplier', 'No Supplier')} — {supplier.get('country', 'No Country')}"
-            for supplier in st.session_state.suppliers_data
-        ]
+            supplier_options = [
+                f"{supplier.get('supplier', 'No Supplier')} — "
+                f"{supplier.get('country', 'No Country')}"
+                for supplier in st.session_state.suppliers_data
+            ]
 
-        selected_supplier_label = st.selectbox(
-            "Select Supplier to Delete",
-            supplier_options,
-            key="delete_supplier_select",
-        )
+            selected_supplier_label = st.selectbox(
+                "Select Supplier to Delete",
+                supplier_options,
+                key="delete_supplier_select",
+            )
 
-        selected_supplier_index = supplier_options.index(selected_supplier_label)
-        selected_supplier = st.session_state.suppliers_data[selected_supplier_index]
+            selected_supplier_index = supplier_options.index(selected_supplier_label)
+            selected_supplier = st.session_state.suppliers_data[selected_supplier_index]
 
-        confirm_delete_supplier = st.checkbox(
-            "I understand this supplier will be permanently deleted."
-        )
+            confirm_delete_supplier = st.checkbox(
+                "I understand this supplier will be permanently deleted."
+            )
 
-        if st.button("Delete Selected Supplier"):
-            if confirm_delete_supplier:
-                delete_supplier_from_supabase(selected_supplier["id"])
+            if st.button("Delete Selected Supplier"):
+                if confirm_delete_supplier:
+                    delete_supplier_from_supabase(selected_supplier["id"])
 
-                st.success(
-                    f"Supplier {selected_supplier.get('supplier')} deleted successfully."
-                )
+                    st.success(
+                        f"Supplier {selected_supplier.get('supplier')} deleted successfully."
+                    )
 
-                st.rerun()
-            else:
-                st.warning("Please confirm deletion before removing the supplier.")
+                    st.rerun()
+                else:
+                    st.warning("Please confirm deletion before removing the supplier.")
+
+        else:
+            st.info("You do not have permission to delete suppliers.")
 
     else:
         st.info("No suppliers added yet.")
