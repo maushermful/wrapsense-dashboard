@@ -388,6 +388,66 @@ def generate_po_pdf(po):
     pdf.save()
     buffer.seek(0)
     return buffer
+
+def generate_quote_pdf(quote):
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+
+    width, height = letter
+    y = height - 50
+
+    pdf.setFont("Helvetica-Bold", 16)
+    pdf.drawString(50, y, "Wrapsense Quote")
+
+    y -= 35
+    pdf.setFont("Helvetica", 10)
+    pdf.drawString(50, y, f"Quote Number: {quote.get('quote_number', '')}")
+    y -= 18
+    pdf.drawString(50, y, f"Quote Date: {quote.get('quote_date', '')}")
+    y -= 18
+    pdf.drawString(50, y, f"Client: {quote.get('client_name', '')}")
+    y -= 18
+    pdf.drawString(50, y, f"Project: {quote.get('project_name', '')}")
+    y -= 18
+    pdf.drawString(50, y, f"Title: {quote.get('title', '')}")
+    y -= 18
+    pdf.drawString(50, y, f"Status: {quote.get('status', '')}")
+
+    y -= 35
+    pdf.setFont("Helvetica-Bold", 12)
+    pdf.drawString(50, y, "Description")
+
+    y -= 18
+    pdf.setFont("Helvetica", 10)
+    description = str(quote.get("description", ""))
+    pdf.drawString(50, y, description[:90])
+
+    y -= 35
+    pdf.setFont("Helvetica-Bold", 12)
+    pdf.drawString(50, y, "Line Item")
+
+    y -= 22
+    pdf.setFont("Helvetica", 10)
+    pdf.drawString(50, y, f"Item: {quote.get('item', '')}")
+    y -= 18
+    pdf.drawString(50, y, f"Quantity: {quote.get('quantity', '')}")
+    y -= 18
+    pdf.drawString(50, y, f"Unit Price: ${quote.get('unit_price', '')}")
+    y -= 18
+    pdf.drawString(50, y, f"Line Total: ${quote.get('line_total', '')}")
+
+    y -= 35
+    pdf.setFont("Helvetica-Bold", 12)
+    pdf.drawString(50, y, "Notes")
+
+    y -= 18
+    pdf.setFont("Helvetica", 10)
+    notes = str(quote.get("notes", ""))
+    pdf.drawString(50, y, notes[:90])
+
+    pdf.save()
+    buffer.seek(0)
+    return buffer
     
 # -----------------------------
 # Authentication Gate
@@ -1093,7 +1153,31 @@ elif page == "Quotes":
             file_name="quotes.csv",
             mime="text/csv",
         )
+        st.markdown("### Generate Quote PDF")
 
+        quote_options = [
+            f"{quote.get('quote_number', 'No Quote Number')} — "
+            f"{quote.get('client_name', 'No Client')}"
+            for quote in quotes_data
+        ]
+
+        selected_quote_label = st.selectbox(
+            "Select Quote",
+            quote_options,
+            key="pdf_quote_select",
+        )
+
+        selected_quote_index = quote_options.index(selected_quote_label)
+        selected_quote = quotes_data[selected_quote_index]
+
+        quote_pdf = generate_quote_pdf(selected_quote)
+
+        st.download_button(
+            label="Download Selected Quote as PDF",
+            data=quote_pdf,
+            file_name=f"{selected_quote.get('quote_number', 'quote')}.pdf",
+            mime="application/pdf",
+        )
         if user_role in ["admin", "manager"]:
             st.markdown("---")
             st.markdown("## Delete Quote")
