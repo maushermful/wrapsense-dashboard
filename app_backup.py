@@ -255,6 +255,36 @@ def add_task_to_supabase(task):
 def delete_task_from_supabase(task_id):
     return supabase.table("tasks").delete().eq("id", task_id).execute()
 
+# -----------------------------
+# Supabase Client Functions
+# -----------------------------
+
+def load_quotes_from_supabase():
+    response = supabase.table("quotes").select("*").execute()
+    return response.data
+
+
+def add_quote_to_supabase(quote):
+    return supabase.table("quotes").insert(
+        {
+            "quote_number": quote.get("Quote Number", ""),
+            "quote_date": quote.get("Quote Date", None),
+            "client_name": quote.get("Client Name", ""),
+            "project_name": quote.get("Project Name", ""),
+            "title": quote.get("Title", ""),
+            "description": quote.get("Description", ""),
+            "item": quote.get("Item", ""),
+            "quantity": quote.get("Quantity", 0),
+            "unit_price": quote.get("Unit Price", 0),
+            "line_total": quote.get("Line Total", 0),
+            "status": quote.get("Status", "Draft"),
+            "notes": quote.get("Notes", ""),
+        }
+    ).execute()
+
+
+def delete_quote_from_supabase(quote_id):
+    return supabase.table("quotes").delete().eq("id", quote_id).execute()
 
 # -----------------------------
 # PDF Upload + Extraction
@@ -730,6 +760,103 @@ if page == "Guided Workflow":
                 add_task_to_supabase(new_task)
 
                 st.success("Task saved to Supabase!")
+                
+    elif workflow_type == "New Quote":
+        st.subheader("New Quote Wizard")
+
+        with st.form("new_quote_form"):
+
+            quote_number = st.text_input(
+                "Quote Number"
+            )
+
+            quote_date = st.date_input(
+                "Quote Date"
+            )
+
+            client_name = st.text_input(
+                "Client Name"
+            )
+
+            project_name = st.text_input(
+                "Project Name"
+            )
+
+            title = st.text_input(
+                "Quote Title"
+            )
+
+            description = st.text_area(
+                "Description"
+            )
+
+            item = st.text_input(
+                "Item"
+            )
+
+            quantity = st.number_input(
+                "Quantity",
+                min_value=0.0,
+                step=1.0,
+            )
+
+            unit_price = st.number_input(
+                "Unit Price",
+                min_value=0.0,
+                step=1.0,
+            )
+
+            line_total = quantity * unit_price
+
+            st.metric(
+                "Line Total",
+                f"${line_total:,.2f}"
+            )
+
+            status = st.selectbox(
+                "Status",
+                [
+                    "Draft",
+                    "Sent",
+                    "Approved",
+                    "Rejected",
+                ],
+            )
+
+            notes = st.text_area(
+                "Notes"
+            )
+
+            submitted = st.form_submit_button(
+                "Save Quote"
+            )
+
+            if submitted:
+
+                new_quote = {
+                    "Quote Number": quote_number,
+                    "Quote Date": str(quote_date),
+                    "Client Name": client_name,
+                    "Project Name": project_name,
+                    "Title": title,
+                    "Description": description,
+                    "Item": item,
+                    "Quantity": quantity,
+                    "Unit Price": unit_price,
+                    "Line Total": line_total,
+                    "Status": status,
+                    "Notes": notes,
+                }
+
+                add_quote_to_supabase(
+                    new_quote
+                )
+
+                st.success(
+                    "Quote saved to Supabase!"
+                )
+                
+
 
 elif page == "Clients":
     st.header("Clients")
@@ -945,12 +1072,69 @@ elif page == "Tasks":
     else:
         st.info("No tasks added yet.")
 
-
 elif page == "Quotes":
     st.header("Quotes")
 
-    df = load_data("SELECT * FROM quote_dashboard;")
-    st.dataframe(df, use_container_width=True)
+    quotes_data = load_quotes_from_supabase()
+
+    if quotes_data:
+        df = pd.DataFrame(quotes_data)
+
+        st.dataframe(
+            df,
+            use_container_width=True,
+        )
+
+        csv = df.to_csv(index=False).encode("utf-8")
+
+        st.download_button(
+            label="Download Quotes CSV",
+            data=csv,
+            file_name="quotes.csv",
+            mime="text/csv",
+        )
+
+        if user_role in ["admin", "manager"]:
+            st.markdown("---")
+            st.markdown("## Delete Quote")
+
+            quote_options = [
+                f"{quote.get('quote_number', 'No Quote Number')} — "
+                f"{quote.get('client_name', 'No Client')}"
+                for quote in quotes_data
+            ]
+
+            selected_quote_label = st.selectbox(
+                "Select Quote to Delete",
+                quote_options,
+                key="delete_quote_select",
+            )
+
+            selected_quote_index = quote_options.index(selected_quote_label)
+            selected_quote = quotes_data[selected_quote_index]
+
+            confirm_delete_quote = st.checkbox(
+                "I understand this quote will be permanently deleted."
+            )
+
+            if st.button("Delete Selected Quote"):
+                if confirm_delete_quote:
+                    delete_quote_from_supabase(selected_quote["id"])
+
+                    st.success(
+                        f"Quote {selected_quote.get('quote_number')} deleted successfully."
+                    )
+
+                    st.rerun()
+
+                else:
+                    st.warning("Please confirm deletion before removing the quote.")
+
+        else:
+            st.info("You do not have permission to delete quotes.")
+
+    else:
+        st.info("No quotes added yet.")
 
 elif page == "Purchase Orders":
     st.header("Purchase Orders")
