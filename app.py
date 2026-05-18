@@ -209,28 +209,40 @@ def add_purchase_order_to_supabase(po):
 
 
 def update_purchase_order_in_supabase(po):
-    return supabase.table("purchase_orders").update(
-        {
-            "po_number": po.get("PO Number", ""),
-            "po_date": po.get("PO Date", None),
-            "supplier": po.get("Supplier", ""),
-            "project": po.get("Project", ""),
-            "title": po.get("Title", ""),
-            "incoterm": po.get("Incoterm", ""),
-            "payment_terms": po.get("Payment Terms", ""),
-            "lead_time": po.get("Lead Time", ""),
-            "notes": po.get("Notes", ""),
-            "item": po.get("Item", ""),
-            "quantity": po.get("Quantity", 0),
-            "unit_price": po.get("Unit Price", 0),
-            "line_total": po.get("Line Total", 0),
-            "status": po.get("Status", "Draft"),
-        }
-    ).eq("id", po.get("id")).execute()
+    po_id = po.get("id")
 
+    if not po_id:
+        return None
 
-def delete_purchase_order_from_supabase(po_id):
-    return supabase.table("purchase_orders").delete().eq("id", po_id).execute()
+    quantity = float(po.get("Quantity", 0) or 0)
+    unit_price = float(po.get("Unit Price", 0) or 0)
+    line_total = quantity * unit_price
+
+    update_data = {
+        "po_number": po.get("PO Number", ""),
+        "po_date": po.get("PO Date", None),
+        "supplier": po.get("Supplier", ""),
+        "project": po.get("Project", ""),
+        "title": po.get("Title", ""),
+        "incoterm": po.get("Incoterm", ""),
+        "payment_terms": po.get("Payment Terms", ""),
+        "lead_time": po.get("Lead Time", ""),
+        "notes": po.get("Notes", ""),
+        "item": po.get("Item", ""),
+        "quantity": quantity,
+        "unit_price": unit_price,
+        "line_total": line_total,
+        "status": po.get("Status", "Draft"),
+    }
+
+    response = (
+        supabase.table("purchase_orders")
+        .update(update_data)
+        .eq("id", po_id)
+        .execute()
+    )
+
+    return response
 
 # -----------------------------
 # Supabase Tasks Functions
@@ -256,7 +268,7 @@ def delete_task_from_supabase(task_id):
     return supabase.table("tasks").delete().eq("id", task_id).execute()
 
 # -----------------------------
-# Supabase Client Functions
+# Supabase Quote Functions
 # -----------------------------
 
 def load_quotes_from_supabase():
@@ -283,8 +295,84 @@ def add_quote_to_supabase(quote):
     ).execute()
 
 
+def update_quote_in_supabase(quote):
+    quote_id = quote.get("id")
+
+    if not quote_id:
+        return None
+
+    quantity = float(
+        quote.get("Quantity", quote.get("quantity", 0)) or 0
+    )
+
+    unit_price = float(
+        quote.get("Unit Price", quote.get("unit_price", 0)) or 0
+    )
+
+    line_total = quantity * unit_price
+
+    update_data = {
+        "quote_number": quote.get("Quote Number", quote.get("quote_number", "")),
+        "quote_date": quote.get("Quote Date", quote.get("quote_date", None)),
+        "client_name": quote.get("Client Name", quote.get("client_name", "")),
+        "project_name": quote.get("Project Name", quote.get("project_name", "")),
+        "title": quote.get("Title", quote.get("title", "")),
+        "description": quote.get("Description", quote.get("description", "")),
+        "item": quote.get("Item", quote.get("item", "")),
+        "quantity": quantity,
+        "unit_price": unit_price,
+        "line_total": line_total,
+        "status": quote.get("Status", quote.get("status", "Draft")),
+        "notes": quote.get("Notes", quote.get("notes", "")),
+    }
+
+    return (
+        supabase.table("quotes")
+        .update(update_data)
+        .eq("id", quote_id)
+        .execute()
+    )
+
+
 def delete_quote_from_supabase(quote_id):
-    return supabase.table("quotes").delete().eq("id", quote_id).execute()
+    return (
+        supabase.table("quotes")
+        .delete()
+        .eq("id", quote_id)
+        .execute()
+    )
+
+def update_quote_in_supabase(quote):
+    quote_id = quote.get("id")
+
+    if not quote_id:
+        return None
+
+    quantity = float(quote.get("quantity", 0) or 0)
+    unit_price = float(quote.get("unit_price", 0) or 0)
+    line_total = quantity * unit_price
+
+    update_data = {
+        "quote_number": quote.get("quote_number", ""),
+        "quote_date": str(quote.get("quote_date", "")) if quote.get("quote_date") else None,
+        "client_name": quote.get("client_name", ""),
+        "project_name": quote.get("project_name", ""),
+        "title": quote.get("title", ""),
+        "description": quote.get("description", ""),
+        "item": quote.get("item", ""),
+        "quantity": quantity,
+        "unit_price": unit_price,
+        "line_total": line_total,
+        "status": quote.get("status", "Draft"),
+        "notes": quote.get("notes", ""),
+    }
+
+    return (
+        supabase.table("quotes")
+        .update(update_data)
+        .eq("id", quote_id)
+        .execute()
+    )
 
 # -----------------------------
 # PDF Upload + Extraction
@@ -917,23 +1005,26 @@ if page == "Guided Workflow":
                 )
                 
 
-
 elif page == "Clients":
     st.header("Clients")
 
-    st.session_state.clients_data = (
-        load_clients_from_supabase()
-    )
+    st.session_state.clients_data = load_clients_from_supabase()
 
     if st.session_state.clients_data:
+        df = pd.DataFrame(st.session_state.clients_data)
 
-        df = pd.DataFrame(
-            st.session_state.clients_data
+        st.markdown("### Clients Overview")
+
+        st.caption(
+            "This table is view-only. "
+            "To make changes, use the "
+            "Edit Client form below."
         )
 
         st.dataframe(
             df,
             use_container_width=True,
+            hide_index=True,
         )
 
         csv = df.to_csv(index=False).encode("utf-8")
@@ -945,69 +1036,111 @@ elif page == "Clients":
             mime="text/csv",
         )
 
-        if user_role in ["admin", "manager"]:
+        st.markdown("---")
+        st.markdown("### Edit Client")
 
+        st.info(
+            "Select a client below, make changes in this form, "
+            "then click 'Save Client Changes'. "
+            "Edits made directly in the overview table will not save."
+        )
+
+        client_options = [
+            f"{client.get('client_name', 'No Client')} — "
+            f"{client.get('email', 'No Email')}"
+            for client in st.session_state.clients_data
+        ]
+
+        selected_client_label = st.selectbox(
+            "Select Client",
+            client_options,
+            key="edit_client_select",
+        )
+
+        selected_client_index = client_options.index(selected_client_label)
+        selected_client = st.session_state.clients_data[selected_client_index]
+
+        with st.form("edit_client_form"):
+            client_name = st.text_input(
+                "Client Name",
+                value=selected_client.get("client_name", ""),
+            )
+
+            contact = st.text_input(
+                "Contact",
+                value=selected_client.get("contact", ""),
+            )
+
+            email = st.text_input(
+                "Email",
+                value=selected_client.get("email", ""),
+            )
+
+            phone = st.text_input(
+                "Phone",
+                value=selected_client.get("phone", ""),
+            )
+
+            notes = st.text_area(
+                "Notes",
+                value=selected_client.get("notes", ""),
+            )
+
+            save_client = st.form_submit_button("Save Client Changes")
+
+        if save_client:
+            supabase.table("clients").update(
+                {
+                    "client_name": client_name,
+                    "contact": contact,
+                    "email": email,
+                    "phone": phone,
+                    "notes": notes,
+                }
+            ).eq(
+                "id",
+                selected_client["id"],
+            ).execute()
+
+            st.success("Client updated successfully!")
+            st.rerun()
+
+        if user_role in ["admin", "manager"]:
             st.markdown("---")
             st.markdown("## Delete Client")
 
-            client_options = [
-                f"{client.get('client_name', 'No Client')} — "
-                f"{client.get('email', 'No Email')}"
-                for client in st.session_state.clients_data
-            ]
-
-            selected_client_label = st.selectbox(
+            delete_client_label = st.selectbox(
                 "Select Client to Delete",
                 client_options,
                 key="delete_client_select",
             )
 
-            selected_client_index = client_options.index(
-                selected_client_label
-            )
-
-            selected_client = (
-                st.session_state.clients_data[
-                    selected_client_index
-                ]
-            )
+            delete_client_index = client_options.index(delete_client_label)
+            selected_delete_client = st.session_state.clients_data[
+                delete_client_index
+            ]
 
             confirm_delete_client = st.checkbox(
                 "I understand this client will be permanently deleted."
             )
 
             if st.button("Delete Selected Client"):
-
                 if confirm_delete_client:
-
-                    delete_client_from_supabase(
-                        selected_client["id"]
-                    )
+                    delete_client_from_supabase(selected_delete_client["id"])
 
                     st.success(
-                        f"Client "
-                        f"{selected_client.get('client_name')} "
-                        f"deleted successfully."
+                        f"Client {selected_delete_client.get('client_name')} deleted successfully."
                     )
 
                     st.rerun()
-
                 else:
-
-                    st.warning(
-                        "Please confirm deletion before "
-                        "removing the client."
-                    )
+                    st.warning("Please confirm deletion before removing the client.")
 
         else:
-
-            st.info(
-                "You do not have permission to delete clients."
-            )
+            st.info("You do not have permission to delete clients.")
 
     else:
         st.info("No clients added yet.")
-
 
 elif page == "Projects":
     st.header("Projects")
@@ -1016,7 +1149,19 @@ elif page == "Projects":
 
     if projects_data:
         df = pd.DataFrame(projects_data)
-        st.dataframe(df, use_container_width=True)
+
+        st.markdown("### Projects Overview")
+
+        st.caption(
+            "This table is view-only. "
+            "To make changes, use the Edit Project form below."
+        )
+
+        st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=True,
+        )
 
         csv = df.to_csv(index=False).encode("utf-8")
 
@@ -1027,24 +1172,99 @@ elif page == "Projects":
             mime="text/csv",
         )
 
+        st.markdown("---")
+        st.markdown("### Edit Project")
+
+        st.info(
+            "Select a project below, make changes in this form, "
+            "then click 'Save Project Changes'. "
+            "Edits made directly in the overview table will not save."
+        )
+
+        project_options = [
+            f"{project.get('project_name', 'No Project')} — "
+            f"{project.get('client_name', 'No Client')}"
+            for project in projects_data
+        ]
+
+        selected_project_label = st.selectbox(
+            "Select Project",
+            project_options,
+            key="edit_project_select",
+        )
+
+        selected_project_index = project_options.index(selected_project_label)
+        selected_project = projects_data[selected_project_index]
+
+        with st.form("edit_project_form"):
+            project_name = st.text_input(
+                "Project Name",
+                value=selected_project.get("project_name", ""),
+            )
+
+            client_name = st.text_input(
+                "Client Name",
+                value=selected_project.get("client_name", ""),
+            )
+
+            internal_ref = st.text_input(
+                "Internal Reference",
+                value=selected_project.get("internal_ref", ""),
+            )
+
+            status_options = [
+                "planning",
+                "active",
+                "on-hold",
+                "completed",
+            ]
+
+            current_status = selected_project.get("status", "planning")
+
+            status = st.selectbox(
+                "Status",
+                status_options,
+                index=status_options.index(current_status)
+                if current_status in status_options
+                else 0,
+            )
+
+            description = st.text_area(
+                "Description",
+                value=selected_project.get("description", ""),
+            )
+
+            save_project = st.form_submit_button("Save Project Changes")
+
+        if save_project:
+            supabase.table("projects").update(
+                {
+                    "project_name": project_name,
+                    "client_name": client_name,
+                    "internal_ref": internal_ref,
+                    "status": status,
+                    "description": description,
+                }
+            ).eq(
+                "id",
+                selected_project["id"],
+            ).execute()
+
+            st.success("Project updated successfully!")
+            st.rerun()
+
         if user_role in ["admin", "manager"]:
             st.markdown("---")
             st.markdown("## Delete Project")
 
-            project_options = [
-                f"{project.get('project_name', 'No Project')} — "
-                f"{project.get('client_name', 'No Client')}"
-                for project in projects_data
-            ]
-
-            selected_project_label = st.selectbox(
+            delete_project_label = st.selectbox(
                 "Select Project to Delete",
                 project_options,
                 key="delete_project_select",
             )
 
-            selected_project_index = project_options.index(selected_project_label)
-            selected_project = projects_data[selected_project_index]
+            delete_project_index = project_options.index(delete_project_label)
+            selected_delete_project = projects_data[delete_project_index]
 
             confirm_delete_project = st.checkbox(
                 "I understand this project will be permanently deleted."
@@ -1052,19 +1272,21 @@ elif page == "Projects":
 
             if st.button("Delete Selected Project"):
                 if confirm_delete_project:
-                    delete_project_from_supabase(selected_project["id"])
+                    delete_project_from_supabase(selected_delete_project["id"])
+
                     st.success(
-                        f"Project {selected_project.get('project_name')} deleted successfully."
+                        f"Project {selected_delete_project.get('project_name')} deleted successfully."
                     )
+
                     st.rerun()
                 else:
                     st.warning("Please confirm deletion before removing the project.")
+
         else:
             st.info("You do not have permission to delete projects.")
 
     else:
         st.info("No projects added yet.")
-
 
 elif page == "Tasks":
     st.header("Tasks")
@@ -1074,9 +1296,17 @@ elif page == "Tasks":
     if tasks_data:
         df = pd.DataFrame(tasks_data)
 
+        st.markdown("### Tasks Overview")
+
+        st.caption(
+            "This table is view-only. "
+            "To make changes, use the Edit Task form below."
+        )
+
         st.dataframe(
             df,
             use_container_width=True,
+            hide_index=True,
         )
 
         csv = df.to_csv(index=False).encode("utf-8")
@@ -1088,41 +1318,113 @@ elif page == "Tasks":
             mime="text/csv",
         )
 
-        if user_role in ["admin", "manager"]:
+        st.markdown("---")
+        st.markdown("### Edit Task")
 
+        st.info(
+            "Select a task below, make changes in this form, "
+            "then click 'Save Task Changes'. "
+            "Edits made directly in the overview table will not save."
+        )
+
+        task_options = [
+            f"{task.get('task', 'No Task')} — "
+            f"{task.get('project', 'No Project')}"
+            for task in tasks_data
+        ]
+
+        selected_task_label = st.selectbox(
+            "Select Task",
+            task_options,
+            key="edit_task_select",
+        )
+
+        selected_task_index = task_options.index(selected_task_label)
+        selected_task = tasks_data[selected_task_index]
+
+        with st.form("edit_task_form"):
+            task_name = st.text_input(
+                "Task",
+                value=selected_task.get("task", ""),
+            )
+
+            priority_options = ["Low", "Medium", "High"]
+            current_priority = selected_task.get("priority", "Medium")
+
+            priority = st.selectbox(
+                "Priority",
+                priority_options,
+                index=priority_options.index(current_priority)
+                if current_priority in priority_options
+                else 1,
+            )
+
+            status_options = ["Open", "In Progress", "Completed"]
+            current_status = selected_task.get("status", "Open")
+
+            status = st.selectbox(
+                "Status",
+                status_options,
+                index=status_options.index(current_status)
+                if current_status in status_options
+                else 0,
+            )
+
+            customer = st.text_input(
+                "Customer / Client",
+                value=selected_task.get("customer", ""),
+            )
+
+            project = st.text_input(
+                "Project",
+                value=selected_task.get("project", ""),
+            )
+
+            save_task = st.form_submit_button("Save Task Changes")
+
+        if save_task:
+            supabase.table("tasks").update(
+                {
+                    "task": task_name,
+                    "priority": priority,
+                    "status": status,
+                    "customer": customer,
+                    "project": project,
+                }
+            ).eq(
+                "id",
+                selected_task["id"],
+            ).execute()
+
+            st.success("Task updated successfully!")
+            st.rerun()
+
+        if user_role in ["admin", "manager"]:
             st.markdown("---")
             st.markdown("## Delete Task")
 
-            task_options = [
-                f"{task.get('task', 'No Task')} — "
-                f"{task.get('project', 'No Project')}"
-                for task in tasks_data
-            ]
-
-            selected_task_label = st.selectbox(
+            delete_task_label = st.selectbox(
                 "Select Task to Delete",
                 task_options,
                 key="delete_task_select",
             )
 
-            selected_task_index = task_options.index(selected_task_label)
-            selected_task = tasks_data[selected_task_index]
+            delete_task_index = task_options.index(delete_task_label)
+            selected_delete_task = tasks_data[delete_task_index]
 
             confirm_delete_task = st.checkbox(
                 "I understand this task will be permanently deleted."
             )
 
             if st.button("Delete Selected Task"):
-
                 if confirm_delete_task:
-                    delete_task_from_supabase(selected_task["id"])
+                    delete_task_from_supabase(selected_delete_task["id"])
 
                     st.success(
-                        f"Task {selected_task.get('task')} deleted successfully."
+                        f"Task {selected_delete_task.get('task')} deleted successfully."
                     )
 
                     st.rerun()
-
                 else:
                     st.warning("Please confirm deletion before removing the task.")
 
@@ -1132,6 +1434,7 @@ elif page == "Tasks":
     else:
         st.info("No tasks added yet.")
 
+
 elif page == "Quotes":
     st.header("Quotes")
 
@@ -1140,9 +1443,18 @@ elif page == "Quotes":
     if quotes_data:
         df = pd.DataFrame(quotes_data)
 
+        st.markdown("### Quotes Overview")
+
+        st.caption(
+            "This table is view-only. "
+            "To make changes, use the "
+            "Edit Quote form below."
+        )
+
         st.dataframe(
             df,
             use_container_width=True,
+            hide_index=True,
         )
 
         csv = df.to_csv(index=False).encode("utf-8")
@@ -1153,10 +1465,18 @@ elif page == "Quotes":
             file_name="quotes.csv",
             mime="text/csv",
         )
-        st.markdown("### Generate Quote PDF")
+
+        st.markdown("---")
+        st.markdown("### Edit Quote")
+
+        st.info(
+            "Select a quote below, make changes in this form, "
+            "then click 'Save Quote Changes'. "
+            "Edits made directly in the overview table will not save."
+        )
 
         quote_options = [
-            f"{quote.get('quote_number', 'No Quote Number')} — "
+            f"{quote.get('quote_number', 'No Quote')} — "
             f"{quote.get('client_name', 'No Client')}"
             for quote in quotes_data
         ]
@@ -1164,13 +1484,134 @@ elif page == "Quotes":
         selected_quote_label = st.selectbox(
             "Select Quote",
             quote_options,
-            key="pdf_quote_select",
+            key="edit_quote_select",
         )
 
         selected_quote_index = quote_options.index(selected_quote_label)
         selected_quote = quotes_data[selected_quote_index]
 
-        quote_pdf = generate_quote_pdf(selected_quote)
+        with st.form("edit_quote_form"):
+            quote_number = st.text_input(
+                "Quote Number",
+                value=selected_quote.get("quote_number", ""),
+            )
+
+            quote_date = st.text_input(
+                "Quote Date",
+                value=str(selected_quote.get("quote_date", "")),
+            )
+
+            client_name = st.text_input(
+                "Client Name",
+                value=selected_quote.get("client_name", ""),
+            )
+
+            project_name = st.text_input(
+                "Project Name",
+                value=selected_quote.get("project_name", ""),
+            )
+
+            title = st.text_input(
+                "Title",
+                value=selected_quote.get("title", ""),
+            )
+
+            description = st.text_area(
+                "Description",
+                value=selected_quote.get("description", ""),
+            )
+
+            item = st.text_input(
+                "Item",
+                value=selected_quote.get("item", ""),
+            )
+
+            quantity = st.number_input(
+                "Quantity",
+                min_value=0.0,
+                value=float(selected_quote.get("quantity", 0) or 0),
+            )
+
+            unit_price = st.number_input(
+                "Unit Price",
+                min_value=0.0,
+                value=float(selected_quote.get("unit_price", 0) or 0),
+            )
+
+            line_total = quantity * unit_price
+
+            st.metric(
+                "Line Total",
+                f"${line_total:,.2f}",
+            )
+
+            status_options = [
+                "Draft",
+                "Sent",
+                "Approved",
+                "Rejected",
+            ]
+
+            current_status = selected_quote.get("status", "Draft")
+
+            status = st.selectbox(
+                "Status",
+                status_options,
+                index=status_options.index(current_status)
+                if current_status in status_options
+                else 0,
+            )
+
+            notes = st.text_area(
+                "Notes",
+                value=selected_quote.get("notes", ""),
+            )
+
+            save_quote = st.form_submit_button("Save Quote Changes")
+
+        if save_quote:
+            supabase.table("quotes").update(
+                {
+                    "quote_number": quote_number,
+                    "quote_date": quote_date if quote_date else None,
+                    "client_name": client_name,
+                    "project_name": project_name,
+                    "title": title,
+                    "description": description,
+                    "item": item,
+                    "quantity": quantity,
+                    "unit_price": unit_price,
+                    "line_total": line_total,
+                    "status": status,
+                    "notes": notes,
+                }
+            ).eq(
+                "id",
+                selected_quote["id"],
+            ).execute()
+
+            st.success("Quote updated successfully!")
+            st.rerun()
+
+        st.markdown("---")
+        st.markdown("### Generate Quote PDF")
+
+        quote_pdf = generate_quote_pdf(
+            {
+                "quote_number": selected_quote.get("quote_number", ""),
+                "quote_date": selected_quote.get("quote_date", ""),
+                "client_name": selected_quote.get("client_name", ""),
+                "project_name": selected_quote.get("project_name", ""),
+                "title": selected_quote.get("title", ""),
+                "description": selected_quote.get("description", ""),
+                "item": selected_quote.get("item", ""),
+                "quantity": selected_quote.get("quantity", ""),
+                "unit_price": selected_quote.get("unit_price", ""),
+                "line_total": selected_quote.get("line_total", ""),
+                "status": selected_quote.get("status", ""),
+                "notes": selected_quote.get("notes", ""),
+            }
+        )
 
         st.download_button(
             label="Download Selected Quote as PDF",
@@ -1178,24 +1619,19 @@ elif page == "Quotes":
             file_name=f"{selected_quote.get('quote_number', 'quote')}.pdf",
             mime="application/pdf",
         )
+
         if user_role in ["admin", "manager"]:
             st.markdown("---")
             st.markdown("## Delete Quote")
 
-            quote_options = [
-                f"{quote.get('quote_number', 'No Quote Number')} — "
-                f"{quote.get('client_name', 'No Client')}"
-                for quote in quotes_data
-            ]
-
-            selected_quote_label = st.selectbox(
+            delete_quote_label = st.selectbox(
                 "Select Quote to Delete",
                 quote_options,
                 key="delete_quote_select",
             )
 
-            selected_quote_index = quote_options.index(selected_quote_label)
-            selected_quote = quotes_data[selected_quote_index]
+            delete_quote_index = quote_options.index(delete_quote_label)
+            selected_delete_quote = quotes_data[delete_quote_index]
 
             confirm_delete_quote = st.checkbox(
                 "I understand this quote will be permanently deleted."
@@ -1203,14 +1639,13 @@ elif page == "Quotes":
 
             if st.button("Delete Selected Quote"):
                 if confirm_delete_quote:
-                    delete_quote_from_supabase(selected_quote["id"])
+                    delete_quote_from_supabase(selected_delete_quote["id"])
 
                     st.success(
-                        f"Quote {selected_quote.get('quote_number')} deleted successfully."
+                        f"Quote {selected_delete_quote.get('quote_number')} deleted successfully."
                     )
 
                     st.rerun()
-
                 else:
                     st.warning("Please confirm deletion before removing the quote.")
 
@@ -1233,43 +1668,26 @@ elif page == "Purchase Orders":
             st.session_state.purchase_orders_data
         )
 
-        st.markdown("### Edit Purchase Orders")
+        st.markdown(
+            "### Purchase Orders Overview"
+        )
 
-        edited_df = st.data_editor(
+        st.caption(
+            "This table is view-only. "
+            "To make changes, use the "
+            "Edit Purchase Order form below."
+        )
+
+        st.dataframe(
             df,
             use_container_width=True,
-            num_rows="fixed",
-            key="po_editor",
-            disabled=["id", "Line Total"],
+            hide_index=True,
         )
-        if st.button("Save Purchase Order Changes"):
 
-            edited_records = edited_df.to_dict("records")
-
-            updated_count = 0
-
-            for po in edited_records:
-
-                po_id = po.get("id")
-
-                if po_id:
-                    update_purchase_order_in_supabase(po)
-                    updated_count += 1
-
-            st.session_state.purchase_orders_data = (
-                load_purchase_orders_from_supabase()
-            )
-
-            st.success(f"{updated_count} purchase order(s) saved.")
-
-            st.rerun()
-
-        current_po_data = edited_df.to_dict("records")
-
-        st.markdown("---")
-
-        csv = edited_df.to_csv(index=False).encode("utf-8")
-
+        csv = (
+            df.to_csv(index=False)
+            .encode("utf-8")
+        )
         st.download_button(
             label="Download Purchase Orders CSV",
             data=csv,
@@ -1277,24 +1695,169 @@ elif page == "Purchase Orders":
             mime="text/csv",
         )
 
-        st.markdown("### Generate PO PDF")
+        st.markdown("---")
+
+        st.markdown(
+            "### Edit Purchase Order"
+        )
+
+        st.info(
+            "Select a purchase order below, "
+            "make changes in this form, then click "
+            "'Save Purchase Order Changes'. "
+            "Edits made directly in the overview table "
+            "will not save."
+        )
 
         po_options = [
-            f"{po.get('PO Number', 'No PO Number')} — "
+            f"{po.get('PO Number', 'No PO')} — "
             f"{po.get('Supplier', 'No Supplier')}"
-            for po in current_po_data
+            for po in (
+                st.session_state.purchase_orders_data
+            )
         ]
 
         selected_po_label = st.selectbox(
-            "Select PO",
+            "Select Purchase Order",
             po_options,
-            key="pdf_po_select",
+            key="edit_po_select",
         )
 
-        selected_index = po_options.index(selected_po_label)
-        selected_po = current_po_data[selected_index]
+        selected_po_index = po_options.index(selected_po_label)
+        selected_po = st.session_state.purchase_orders_data[selected_po_index]
 
-        pdf_file = generate_po_pdf(selected_po)
+        with st.form("edit_po_form"):
+            po_number = st.text_input(
+                "PO Number",
+                value=selected_po.get("PO Number", ""),
+            )
+
+            supplier = st.text_input(
+                "Supplier",
+                value=selected_po.get("Supplier", ""),
+            )
+
+            project = st.text_input(
+                "Project",
+                value=selected_po.get("Project", ""),
+            )
+
+            title = st.text_input(
+                "Title",
+                value=selected_po.get("Title", ""),
+            )
+
+            incoterm = st.text_input(
+                "Incoterm",
+                value=selected_po.get("Incoterm", ""),
+            )
+
+            payment_terms = st.text_area(
+                "Payment Terms",
+                value=selected_po.get("Payment Terms", ""),
+            )
+
+            lead_time = st.text_input(
+                "Lead Time",
+                value=selected_po.get("Lead Time", ""),
+            )
+
+            notes = st.text_area(
+                "Notes",
+                value=selected_po.get("Notes", ""),
+            )
+
+            item = st.text_input(
+                "Item",
+                value=selected_po.get("Item", ""),
+            )
+
+            quantity = st.number_input(
+                "Quantity",
+                min_value=0.0,
+                value=float(selected_po.get("Quantity", 0) or 0),
+            )
+
+            unit_price = st.number_input(
+                "Unit Price",
+                min_value=0.0,
+                value=float(selected_po.get("Unit Price", 0) or 0),
+            )
+
+            line_total = quantity * unit_price
+
+            st.metric(
+                "Line Total",
+                f"${line_total:,.2f}",
+            )
+
+            status_options = [
+                "Draft",
+                "Sent",
+                "Approved",
+                "Completed",
+            ]
+
+            current_status = selected_po.get("Status", "Draft")
+
+            status = st.selectbox(
+                "Status",
+                status_options,
+                index=status_options.index(current_status)
+                if current_status in status_options
+                else 0,
+            )
+
+            save_po = st.form_submit_button(
+                "Save Purchase Order Changes"
+            )
+
+        if save_po:
+            supabase.table("purchase_orders").update(
+                {
+                    "po_number": po_number,
+                    "supplier": supplier,
+                    "project": project,
+                    "title": title,
+                    "incoterm": incoterm,
+                    "payment_terms": payment_terms,
+                    "lead_time": lead_time,
+                    "notes": notes,
+                    "item": item,
+                    "quantity": quantity,
+                    "unit_price": unit_price,
+                    "line_total": line_total,
+                    "status": status,
+                }
+            ).eq(
+                "id",
+                selected_po["id"],
+            ).execute()
+
+            st.success("Purchase order updated successfully!")
+            st.rerun()
+
+        st.markdown("---")
+        st.markdown("### Generate PO PDF")
+
+        pdf_file = generate_po_pdf(
+            {
+                "PO Number": selected_po.get("PO Number", ""),
+                "PO Date": selected_po.get("PO Date", ""),
+                "Supplier": selected_po.get("Supplier", ""),
+                "Project": selected_po.get("Project", ""),
+                "Title": selected_po.get("Title", ""),
+                "Incoterm": selected_po.get("Incoterm", ""),
+                "Payment Terms": selected_po.get("Payment Terms", ""),
+                "Lead Time": selected_po.get("Lead Time", ""),
+                "Notes": selected_po.get("Notes", ""),
+                "Item": selected_po.get("Item", ""),
+                "Quantity": selected_po.get("Quantity", ""),
+                "Unit Price": selected_po.get("Unit Price", ""),
+                "Line Total": selected_po.get("Line Total", ""),
+                "Status": selected_po.get("Status", ""),
+            }
+        )
 
         st.download_button(
             label="Download Selected PO as PDF",
@@ -1304,7 +1867,6 @@ elif page == "Purchase Orders":
         )
 
         if user_role in ["admin", "manager"]:
-
             st.markdown("---")
             st.markdown("## Delete Purchase Order")
 
@@ -1315,16 +1877,16 @@ elif page == "Purchase Orders":
             )
 
             delete_index = po_options.index(delete_po_label)
-            selected_delete_po = current_po_data[delete_index]
+            selected_delete_po = st.session_state.purchase_orders_data[
+                delete_index
+            ]
 
             confirm_delete = st.checkbox(
                 "I understand this action cannot be undone."
             )
 
             if st.button("Delete Selected Purchase Order"):
-
                 if confirm_delete:
-
                     delete_purchase_order_from_supabase(
                         selected_delete_po["id"]
                     )
@@ -1336,7 +1898,6 @@ elif page == "Purchase Orders":
                     )
 
                     st.rerun()
-
                 else:
                     st.warning(
                         "Please confirm deletion before removing "
@@ -1344,11 +1905,10 @@ elif page == "Purchase Orders":
                     )
 
         else:
-
             st.info(
                 "You do not have permission to delete purchase orders."
             )
-            
+
     else:
         st.info("No purchase orders created yet.")
 
@@ -1359,7 +1919,19 @@ elif page == "Suppliers":
 
     if st.session_state.suppliers_data:
         df = pd.DataFrame(st.session_state.suppliers_data)
-        st.dataframe(df, use_container_width=True)
+
+        st.markdown("### Suppliers Overview")
+
+        st.caption(
+            "This table is view-only. "
+            "To make changes, use the Edit Supplier form below."
+        )
+
+        st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=True,
+        )
 
         csv = df.to_csv(index=False).encode("utf-8")
 
@@ -1370,24 +1942,95 @@ elif page == "Suppliers":
             mime="text/csv",
         )
 
+        st.markdown("---")
+        st.markdown("### Edit Supplier")
+
+        st.info(
+            "Select a supplier below, make changes in this form, "
+            "then click 'Save Supplier Changes'. "
+            "Edits made directly in the overview table will not save."
+        )
+
+        supplier_options = [
+            f"{supplier.get('supplier', 'No Supplier')} — "
+            f"{supplier.get('country', 'No Country')}"
+            for supplier in st.session_state.suppliers_data
+        ]
+
+        selected_supplier_label = st.selectbox(
+            "Select Supplier",
+            supplier_options,
+            key="edit_supplier_select",
+        )
+
+        selected_supplier_index = supplier_options.index(selected_supplier_label)
+        selected_supplier = st.session_state.suppliers_data[selected_supplier_index]
+
+        with st.form("edit_supplier_form"):
+            supplier_name = st.text_input(
+                "Supplier Name",
+                value=selected_supplier.get("supplier", ""),
+            )
+
+            country = st.text_input(
+                "Country",
+                value=selected_supplier.get("country", ""),
+            )
+
+            specialty = st.text_input(
+                "Specialty",
+                value=selected_supplier.get("specialty", ""),
+            )
+
+            contact = st.text_input(
+                "Contact",
+                value=selected_supplier.get("contact", ""),
+            )
+
+            email = st.text_input(
+                "Email",
+                value=selected_supplier.get("email", ""),
+            )
+
+            notes = st.text_area(
+                "Notes",
+                value=selected_supplier.get("notes", ""),
+            )
+
+            save_supplier = st.form_submit_button("Save Supplier Changes")
+
+        if save_supplier:
+            supabase.table("suppliers").update(
+                {
+                    "supplier": supplier_name,
+                    "country": country,
+                    "specialty": specialty,
+                    "contact": contact,
+                    "email": email,
+                    "notes": notes,
+                }
+            ).eq(
+                "id",
+                selected_supplier["id"],
+            ).execute()
+
+            st.success("Supplier updated successfully!")
+            st.rerun()
+
         if user_role in ["admin", "manager"]:
             st.markdown("---")
             st.markdown("## Delete Supplier")
 
-            supplier_options = [
-                f"{supplier.get('supplier', 'No Supplier')} — "
-                f"{supplier.get('country', 'No Country')}"
-                for supplier in st.session_state.suppliers_data
-            ]
-
-            selected_supplier_label = st.selectbox(
+            delete_supplier_label = st.selectbox(
                 "Select Supplier to Delete",
                 supplier_options,
                 key="delete_supplier_select",
             )
 
-            selected_supplier_index = supplier_options.index(selected_supplier_label)
-            selected_supplier = st.session_state.suppliers_data[selected_supplier_index]
+            delete_supplier_index = supplier_options.index(delete_supplier_label)
+            selected_delete_supplier = st.session_state.suppliers_data[
+                delete_supplier_index
+            ]
 
             confirm_delete_supplier = st.checkbox(
                 "I understand this supplier will be permanently deleted."
@@ -1395,10 +2038,10 @@ elif page == "Suppliers":
 
             if st.button("Delete Selected Supplier"):
                 if confirm_delete_supplier:
-                    delete_supplier_from_supabase(selected_supplier["id"])
+                    delete_supplier_from_supabase(selected_delete_supplier["id"])
 
                     st.success(
-                        f"Supplier {selected_supplier.get('supplier')} deleted successfully."
+                        f"Supplier {selected_delete_supplier.get('supplier')} deleted successfully."
                     )
 
                     st.rerun()
